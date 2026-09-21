@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+
+# Local deploy settings: host and password. Never commit.
+.deploy.env
+
+# Runtime state, lives on the Pi rather than here
+media/

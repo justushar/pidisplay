@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pidisplay</title>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #131a22; --line: #1f2a36; --ink: #e6edf3;
+    --dim: #8fa3b8; --accent: #3fa7ff; --ok: #4be08b; --warn: #ff6b5b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; background: var(--bg); z-index: 5;
+  }
+  h1 { font-size: 16px; margin: 0; letter-spacing: .14em; color: var(--dim); font-weight: 600; }
+  #now { font-size: 14px; color: var(--accent); font-weight: 600; }
+  .grow { flex: 1; }
+  main { padding: 20px; max-width: 1000px; margin: 0 auto; display: grid; gap: 20px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  h2 { font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+       color: var(--dim); margin: 0 0 12px; font-weight: 600; }
+  button {
+    font: inherit; color: var(--ink); background: #1b2430;
+    border: 1px solid var(--line); border-radius: 7px;
+    padding: 8px 14px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #05121f; font-weight: 600; }
+  button.primary:hover { color: #05121f; filter: brightness(1.1); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  input[type=text], input[type=number], textarea, input[type=file] {
+    font: inherit; color: var(--ink); background: #0e141b;
+    border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+  }
+  textarea { width: 100%; min-height: 78px; resize: vertical; }
+  input[type=color] {
+    width: 38px; height: 34px; padding: 2px; background: #0e141b;
+    border: 1px solid var(--line); border-radius: 7px;
+  }
+  label { color: var(--dim); font-size: 13px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .card { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: #0e141b; }
+  .card img, .card .noimg {
+    width: 100%; aspect-ratio: 3/2; object-fit: cover; display: block; background: #060a0e;
+  }
+  .noimg { display: grid; place-items: center; color: #33404e; font-size: 26px; }
+  .card .meta { padding: 7px 9px; display: flex; align-items: center; gap: 6px; }
+  .card .name {
+    font-size: 12px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; flex: 1;
+  }
+  .tag { font-size: 10px; letter-spacing: .08em; color: var(--dim);
+         border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+  .card button { padding: 3px 7px; font-size: 12px; }
+  .stats { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .stat { background: #0e141b; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .stat .k { font-size: 11px; letter-spacing: .1em; color: var(--dim); text-transform: uppercase; }
+  .stat .v { font-size: 19px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .track { height: 5px; background: #1b2430; border-radius: 3px; margin-top: 7px; overflow: hidden; }
+  .track > i { display: block; height: 100%; background: var(--accent); }
+  #err { color: var(--warn); font-size: 13px; min-height: 18px; padding: 0 20px; }
+  .hint { color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PIDISPLAY</h1>
+  <div id="now">&mdash;</div>
+  <div class="grow"></div>
+  <button onclick="post('/api/show', {mode:'sysmon'})">System monitor</button>
+  <button onclick="post('/api/show', {mode:'test'})">Test pattern</button>
+  <button onclick="post('/api/show', {mode:'clear'})">Clear</button>
+</header>
+
+<div id="err"></div>
+
+<main>
+  <section>
+    <h2>Now on the panel</h2>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section>
+    <h2>Add media</h2>
+    <div class="row">
+      <input type="file" id="files" multiple
+             accept=".png,.jpg,.jpeg,.bmp,.webp,.tif,.tiff,.gif,.mp4,.mov,.mkv,.webm,.avi,.m4v">
+      <button class="primary" id="up" onclick="upload()">Upload</button>
+    </div>
+    <p class="hint">Images and video/GIF. Anything animated plays through ffmpeg; stills are drawn once.</p>
+  </section>
+
+  <section>
+    <h2>Slideshow</h2>
+    <div class="row">
+      <label>hold each for
+        <input type="number" id="secs" value="8" min="1" max="3600" style="width:70px"> s
+      </label>
+      <label><input type="checkbox" id="shuffle"> shuffle</label>
+      <button class="primary" onclick="startSlideshow()">Start slideshow</button>
+    </div>
+    <p class="hint">Cycles the whole library, forever. Stills hold for the interval;
+       clips loop for the interval, then it advances. Survives a reboot.</p>
+  </section>
+
+  <section>
+    <h2>Library</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>target fps <input type="number" id="fps" value="6" min="1" max="30" style="width:64px"></label>
+      <label><input type="checkbox" id="loop" checked> loop</label>
+      <span class="hint" id="ceiling">&nbsp;</span>
+    </div>
+    <div class="grid" id="lib"></div>
+  </section>
+
+  <section>
+    <h2>Picture</h2>
+    <div class="row">
+      <label>gamma
+        <input type="range" id="gamma" min="0.5" max="2.0" step="0.05" value="1"
+               style="vertical-align:middle">
+        <span id="gammaVal" class="hint">1.00</span>
+      </label>
+      <label>saturation
+        <input type="range" id="sat" min="0.5" max="2.0" step="0.05" value="1"
+               style="vertical-align:middle">
+        <span id="satVal" class="hint">1.00</span>
+      </label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label>dither
+        <select id="dither">
+          <option value="bayer">bayer (fastest, recommended)</option>
+          <option value="x_dither">x_dither</option>
+          <option value="a_dither">a_dither</option>
+          <option value="none">none (more banding)</option>
+          <option value="ed">error-diffusion (costs ~40% fps)</option>
+        </select>
+      </label>
+      <label>scaler
+        <select id="sharp">
+          <option value="lanczos">lanczos (sharpest)</option>
+          <option value="bicubic">bicubic</option>
+          <option value="bilinear">bilinear (softest)</option>
+        </select>
+      </label>
+      <label>motion
+        <select id="speed">
+          <option value="auto">auto — slow fast clips, keep every frame</option>
+          <option value="1">real time — drop frames instead</option>
+          <option value="0.75">0.75x</option>
+          <option value="0.5">0.5x</option>
+          <option value="0.25">0.25x</option>
+        </select>
+      </label>
+      <button onclick="post('/api/show', {mode:'diag'})">Diagnostic pattern</button>
+      <button onclick="post('/api/tune', {reset:true})">Reset picture</button>
+    </div>
+    <p class="hint">Changes re-render what's on screen straight away.
+       Judge colour on the flat patches, banding on the ramps, sharpness on the fine lines.</p>
+  </section>
+
+  <section>
+    <h2>Text</h2>
+    <textarea id="text" placeholder="Type anything. Long lines wrap; blank lines are kept."></textarea>
+    <div class="row" style="margin-top:10px">
+      <label>size <input type="number" id="size" value="34" min="10" max="96" style="width:64px"></label>
+      <label>text <input type="color" id="fg" value="#ffffff"></label>
+      <label>background <input type="color" id="bg" value="#000000"></label>
+      <button class="primary" onclick="sendText()">Show text</button>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const err = msg => { $('err').textContent = msg || ''; };
+
+async function post(url, body) {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    err('');
+    refresh();
+  } catch (e) { err(e.message); }
+}
+
+function show(name, kind) {
+  post('/api/show', {
+    mode: kind || 'image',   // the server re-derives the real kind from the file
+    name,
+    fps: Number($('fps').value) || 10,
+    loop: $('loop').checked,
+  });
+}
+
+function startSlideshow() {
+  post('/api/show', {
+    mode: 'slideshow',
+    seconds: Number($('secs').value) || 8,
+    fps: Number($('fps').value) || 10,
+    shuffle: $('shuffle').checked,
+  });
+}
+
+async function del(name) {
+  if (!confirm('Delete ' + name + ' from the Pi?')) return;
+  try {
+    const res = await fetch('/api/media/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    err(''); refresh();
+  } catch (e) { err(e.message); }
+}
+
+function sendText() {
+  post('/api/show', {
+    mode: 'text',
+    text: $('text').value,
+    size: Number($('size').value) || 34,
+    fg: $('fg').value,
+    bg: $('bg').value,
+  });
+}
+
+async function upload() {
+  const picked = $('files').files;
+  if (!picked.length) { err('pick a file first'); return; }
+  const form = new FormData();
+  for (const f of picked) form.append('files', f);
+  $('up').disabled = true;
+  $('up').textContent = 'Uploading…';
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    err(data.rejected?.length ? 'rejected (unsupported type): ' + data.rejected.join(', ') : '');
+    $('files').value = '';
+    refresh();
+  } catch (e) { err(e.message); }
+  finally { $('up').disabled = false; $('up').textContent = 'Upload'; }
+}
+
+const kb = n => n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' kB';
+
+function statTile(key, value, pct, colour) {
+  const bar = pct === null ? '' :
+    `<div class="track"><i style="width:${Math.min(100, Math.max(0, pct)).toFixed(0)}%;background:${colour}"></i></div>`;
+  return `<div class="stat"><div class="k">${key}</div><div class="v">${value}</div>${bar}</div>`;
+}
+
+const tag = fit => fit === 'cover' ? ' [filled]' : fit === 'pixel' ? ' [pixel]' : '';
+
+// Plain text, not markup: st.detail carries server/ffmpeg error output.
+function statusText(st, fps, detail) {
+  switch (st.mode) {
+    case 'error':
+      return 'error — ' + (st.detail || '');
+    case 'video':
+      return `${st.name}${tag(st.fit)}` +
+             ` — ${fps.toFixed(1)} fps measured` +
+             ` (target ${st.fps}${st.loop ? ', looping' : ''})`;
+    case 'image':
+      return st.name + tag(st.fit);
+    case 'slideshow':
+      return `slideshow — ${detail || '…'}` +
+             ` (${st.count} items, ${st.seconds}s each` +
+             `${st.shuffle ? ', shuffled' : ''}) — ${fps.toFixed(1)} fps`;
+    case 'text':
+      return 'text card';
+    default:
+      return st.mode || '—';
+  }
+}
+
+async function refresh() {
+  let data;
+  try {
+    const res = await fetch('/api/state');
+    if (!res.ok) throw new Error('state ' + res.status);
+    data = await res.json();
+  } catch (e) { err(e.message); return; }
+
+  $('now').textContent = statusText(data.status, data.fps, data.detail);
+  showTune(data.tune);
+
+  // The SPI bus, not this app, decides how much motion the panel can show.
+  if (data.max_fps) {
+    const mhz = data.spi_hz ? ` (SPI ${(data.spi_hz / 1e6).toFixed(0)} MHz)` : '';
+    $('ceiling').textContent =
+      `panel ceiling ${data.panel_fps} fps${mhz} — requests above ${data.max_fps} are capped,` +
+      ` since extra frames only add judder`;
+    const box = $('fps');
+    box.max = data.max_fps;
+    if (Number(box.value) > data.max_fps) box.value = data.max_fps;
+  }
+
+  const s = data.stats;
+  const up = Math.floor(s.uptime);
+  $('stats').innerHTML = [
+    statTile('cpu', s.cpu.toFixed(0) + '%', s.cpu, '#3fa7ff'),
+    statTile('memory', `${s.mem_used_mb.toFixed(0)} / ${s.mem_total_mb.toFixed(0)} MB`, s.mem_pct, '#4be08b'),
+    statTile('disk', s.disk_free_gb.toFixed(1) + ' GB free', s.disk_pct, '#c9a227'),
+    statTile('temp', s.temp === null ? 'n/a' : s.temp.toFixed(1) + ' °C', s.temp === null ? null : s.temp / 85 * 100, '#ff6b5b'),
+    statTile('load', s.load.join('  '), null),
+    statTile('uptime', `${Math.floor(up / 86400)}d ${Math.floor(up % 86400 / 3600)}h ${Math.floor(up % 3600 / 60)}m`, null),
+  ].join('');
+
+  // Built as DOM nodes, not interpolated HTML: a filename can never be markup.
+  const lib = $('lib');
+  lib.textContent = '';
+  if (!data.media.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'Nothing uploaded yet.';
+    lib.append(p);
+    return;
+  }
+  for (const m of data.media) {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const img = document.createElement('img');
+    img.src = '/api/thumb/' + encodeURIComponent(m.name);
+    img.alt = '';
+    img.loading = 'lazy';
+    img.style.cursor = 'pointer';
+    img.dataset.show = m.name;
+    img.dataset.kind = m.kind;
+    img.onerror = () => {
+      const ph = document.createElement('div');
+      ph.className = 'noimg';
+      ph.textContent = '▦';
+      ph.style.cursor = 'pointer';
+      ph.dataset.show = m.name;
+      ph.dataset.kind = m.kind;
+      img.replaceWith(ph);
+    };
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.title = `${m.name} — ${kb(m.size)}, ${m.kind === 'video' ? 'animated' : 'still'}`;
+    name.textContent = m.name;
+
+    // FIT -> FILL -> PIXEL -> FIT
+    const FITS = {
+      contain: { label: 'FIT',   next: 'cover',
+                 hint: 'letterboxed, nothing cropped — click to fill the panel' },
+      cover:   { label: 'FILL',  next: 'pixel',
+                 hint: 'filling the panel, edges cropped — click for pixel-exact' },
+      pixel:   { label: 'PIXEL', next: 'contain',
+                 hint: 'nearest-neighbour at whole-number scale, crisp for pixel art — click to letterbox' },
+    };
+    const cur = FITS[m.fit] || FITS.contain;
+    const fitBtn = document.createElement('button');
+    fitBtn.textContent = cur.label;
+    fitBtn.title = cur.hint;
+    if (m.fit === 'cover') fitBtn.style.borderColor = 'var(--ok)';
+    if (m.fit === 'pixel') fitBtn.style.borderColor = 'var(--accent)';
+    fitBtn.dataset.fit = m.name;
+    fitBtn.dataset.next = cur.next;
+
+    const kill = document.createElement('button');
+    kill.title = 'delete';
+    kill.textContent = '✕';
+    kill.dataset.del = m.name;
+
+    meta.append(name, fitBtn, kill);
+    card.append(img, meta);
+    lib.append(card);
+  }
+}
+
+// One delegated listener, so re-rendering the grid never rebinds anything.
+$('lib').addEventListener('click', ev => {
+  const target = ev.target.closest('[data-show], [data-del], [data-fit]');
+  if (!target) return;
+  if (target.dataset.fit !== undefined) {
+    post('/api/fit', { name: target.dataset.fit, fit: target.dataset.next });
+  } else if (target.dataset.del !== undefined) {
+    del(target.dataset.del);
+  } else {
+    show(target.dataset.show, target.dataset.kind);
+  }
+});
+
+// Picture controls. Sliders fire on release so we don't spam re-renders.
+let tuneLoaded = false;
+$('gamma').oninput = () => { $('gammaVal').textContent = Number($('gamma').value).toFixed(2); };
+$('sat').oninput   = () => { $('satVal').textContent   = Number($('sat').value).toFixed(2); };
+$('gamma').onchange = () => post('/api/tune', { gamma: Number($('gamma').value) });
+$('sat').onchange   = () => post('/api/tune', { saturation: Number($('sat').value) });
+$('dither').onchange = () => post('/api/tune', { dither: $('dither').value });
+$('sharp').onchange  = () => post('/api/tune', { sharp: $('sharp').value });
+$('speed').onchange  = () => post('/api/tune', { speed: $('speed').value });
+
+// Seed the controls from the server once; after that the UI owns them, so a
+// poll landing mid-drag can't yank a slider back.
+function showTune(t) {
+  if (!t || tuneLoaded) return;
+  tuneLoaded = true;
+  $('gamma').value = t.gamma;   $('gammaVal').textContent = Number(t.gamma).toFixed(2);
+  $('sat').value = t.saturation; $('satVal').textContent  = Number(t.saturation).toFixed(2);
+  $('dither').value = t.dither;
+  $('sharp').value = t.sharp;
+  $('speed').value = String(t.speed);
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

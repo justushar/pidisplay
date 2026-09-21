@@ -1,0 +1,35 @@
+[Unit]
+Description=pidisplay - 480x320 SPI panel display server
+# Deliberately NOT ordered after network-online.target: painting the panel needs
+# no network, and waiting for DHCP would delay the restored image by 10-30s.
+# Binding 0.0.0.0 succeeds before the link is up; the UI simply becomes
+# reachable a moment later.
+
+[Container]
+Image=localhost/pidisplay:latest
+ContainerName=pidisplay
+PublishPort=8080:8080
+AddDevice=/dev/fb1
+Volume=%h/pidisplay/media:/media
+# Read-only view of the device tree so the app can read the panel's SPI clock
+# and cap its own framerate. podman masks /proc/device-tree by default.
+Volume=/proc/device-tree:/host-dt:ro
+
+Environment=FB_DEV=/dev/fb1
+Environment=MEDIA_DIR=/media
+Environment=AUTH_USER=admin
+# Shown on the panel at startup so a headless Pi tells you where its UI is.
+Environment=HOST_HINT=port 8080
+# AUTH_PASS lives here so it is not baked into the image or this file.
+EnvironmentFile=%h/pidisplay/auth.env
+
+# Carry the host's supplementary groups (notably 'video') into the container so
+# rootless podman can write /dev/fb1 without the container running as root.
+PodmanArgs=--group-add keep-groups
+
+[Service]
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
