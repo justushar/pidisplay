@@ -313,8 +313,39 @@ re-renders what is on screen immediately; they persist in
 |---|---|---|
 | `sharp` | `lanczos` | ffmpeg scaler. ffmpeg's own default is **bicubic**, which is visibly soft. |
 | `dither` | `bayer` | How 24-bit colour is reduced to 16-bit. |
-| `gamma` | `1.0` | <1 brightens midtones, >1 darkens. |
+| `gamma` | `1.0` | **Lower is brighter.** 0.7 measured good on this panel. |
 | `saturation` | `1.0` | Colour intensity. |
+| `speed` | `auto` | Slow fast clips instead of dropping frames. |
+
+### Brightness
+
+**There is no backlight control on this board.** `/sys/class/backlight/` is
+empty and the panel's device-tree node has only `dc-gpios` and `reset-gpios` —
+no `led-gpios`, no PWM, no backlight node. The LED is hardwired on, so peak
+white is fixed in hardware.
+
+Brightness is therefore software-only: `gamma` below 1.0 lifts everything below
+white without clipping. At **0.7** (good on this panel):
+
+| input | output |
+|---|---|
+| 0 | 0 |
+| 32 | 60 |
+| 128 | 157 |
+| 255 | 255 |
+
+Note white is unchanged — gamma cannot exceed the backlight. If the **white
+patch** on the diagnostic pattern itself looks dim, that is the hardware
+ceiling and no setting will change it. Below about 0.45 dark detail crushes
+together and images look washed out.
+
+The value is not baked in as a default, because it is a per-panel calibration;
+it persists in `.tune.json` on the Pi, so it survives reboots and redeploys.
+
+**Watch the direction convention.** `pack()` computes `x^gamma` (lower =
+brighter) while ffmpeg's `eq` computes `x^(1/gamma)` (lower = darker).
+`eq_filter()` inverts the value for the video path — without that, brightening
+stills would darken GIFs by exactly the same amount. A test pins it.
 
 **Use `bayer`, not `ed`.** Measured on this Pi, decoding 198 frames of a
 640x360 GIF to 480x320:

@@ -143,8 +143,21 @@ def coerce_tune(key: str, value):
 
 
 def _gamma_lut(gamma: float):
+    """x^gamma, so a value below 1.0 brightens midtones."""
     ramp = np.arange(256, dtype=np.float32) / 255.0
     return np.clip(ramp ** gamma * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+
+def eq_filter(gamma: float, saturation: float):
+    """ffmpeg's eq stage for the video path, or None when it is a no-op.
+
+    ffmpeg's eq computes x^(1/gamma) while pack() computes x^gamma, so the
+    value MUST be inverted here. Passing it through unchanged would darken
+    video by exactly the amount it brightened stills.
+    """
+    if abs(gamma - 1.0) < 1e-3 and abs(saturation - 1.0) < 1e-3:
+        return None
+    return f"eq=gamma={1.0 / gamma:.4f}:saturation={saturation:.3f}"
 
 
 def load_tune() -> None:
@@ -640,9 +653,9 @@ def video_source(path: Path, fps: int = MAX_FPS, loop: bool = True, mode: str = 
               f"{speed:.2f}x so all frames survive at {fps} fps", flush=True)
     stages += [f"fps={fps}", geom]
 
-    gamma, sat = TUNE.get("gamma", 1.0), TUNE.get("saturation", 1.0)
-    if abs(gamma - 1.0) > 1e-3 or abs(sat - 1.0) > 1e-3:
-        stages.append(f"eq=gamma={gamma:.3f}:saturation={sat:.3f}")
+    eq = eq_filter(TUNE.get("gamma", 1.0), TUNE.get("saturation", 1.0))
+    if eq:
+        stages.append(eq)
     vf = ",".join(stages)
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]

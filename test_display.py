@@ -321,6 +321,19 @@ check("gamma above 1 darkens midtones", D._gamma_lut(2.0)[128] < 128)
 check("gamma never clips the endpoints",
       (D._gamma_lut(2.5)[0], D._gamma_lut(2.5)[255]) == (0, 255))
 
+# The video path must move the SAME direction as the still path. ffmpeg's eq
+# computes x^(1/gamma), so the value has to be inverted on the way in; passing
+# it straight through would darken video exactly as much as it brightened stills.
+check("no eq stage when nothing is changed", D.eq_filter(1.0, 1.0) is None)
+check("eq inverts gamma for ffmpeg", "gamma=2.0000" in D.eq_filter(0.5, 1.0))
+check("eq inverts the other way too", "gamma=0.5000" in D.eq_filter(2.0, 1.0))
+check("eq passes saturation through unchanged", "saturation=1.400" in D.eq_filter(1.0, 1.4))
+check("a saturation-only change still emits a stage", D.eq_filter(1.0, 1.4) is not None)
+# Brightening in pack() and brightening in ffmpeg must agree in sign.
+_brighter_still = D._gamma_lut(0.7)[128] > 128
+_brighter_video = float(D.eq_filter(0.7, 1.0).split("gamma=")[1].split(":")[0]) > 1.0
+check("both paths brighten for the same input", _brighter_still and _brighter_video)
+
 _before = px(solid((128, 128, 128)), 0, 0)
 D.TUNE["gamma"] = 0.5
 _after = px(solid((128, 128, 128)), 0, 0)
